@@ -588,7 +588,7 @@ def get_researcher_leads():
     if not researcher: return _err("Missing researcher")
     docs = (db.collection(RESEARCHER_LEADS_PATH)
               .where(filter=FieldFilter("assigned_to","==",researcher))
-              .where(filter=FieldFilter("phone","==","NO"))
+              .where(filter=FieldFilter("status","in",["new","calling"]))
               .limit(200).get())
     return jsonify([_enrich(d.id,d.to_dict()) for d in docs])
 
@@ -849,7 +849,7 @@ def get_staff_pending_counts():
                 calling = c_col.where(filter=FieldFilter("assigned_to","==",uname)).where(filter=FieldFilter("status","==","calling")).count().get()[0][0].value
                 cb      = c_col.where(filter=FieldFilter("assigned_to","==",uname)).where(filter=FieldFilter("status","==","callback")).count().get()[0][0].value
                 nw      = c_col.where(filter=FieldFilter("assigned_to","==",uname)).where(filter=FieldFilter("status","==","new")).count().get()[0][0].value
-                noph    = c_col.where(filter=FieldFilter("assigned_to","==",uname)).where(filter=FieldFilter("phone","==","NO")).where(filter=FieldFilter("status","==","new")).count().get()[0][0].value
+                noph    = c_col.where(filter=FieldFilter("assigned_to","==",uname)).where(filter=FieldFilter("status","in",["new","calling"])).count().get()[0][0].value
                 total_active = calling+cb+nw
                 if total_active > 0: counts[uname]    = total_active
                 if cb > 0:           cb_counts[uname] = cb
@@ -866,10 +866,9 @@ def get_staff_pending_counts():
                 status   = dat.get("status","")
                 assignee = dat.get("assigned_to")
                 if not assignee: continue
-                if dat.get("phone") == "NO":
-                    if status in ("new","calling"):
-                        res_counts[assignee] = res_counts.get(assignee,0)+1
-                    continue
+                # Count as researcher pending if status is new/calling (regardless of phone value)
+                if status in ("new","calling") and dat.get("phone") in ("NO", None):
+                    res_counts[assignee] = res_counts.get(assignee,0)+1
                 if status in ("calling","callback","new"):
                     counts[assignee] = counts.get(assignee,0)+1
                 if status == "callback":  cb_counts[assignee]  = cb_counts.get(assignee,0)+1
