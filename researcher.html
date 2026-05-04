@@ -303,7 +303,9 @@
     // ── apiFetch — sends auth token, handles 401 ──────────────
     async function apiFetch(url, opts = {}) {
         if (!opts.headers) opts.headers = {};
-        opts.headers['Authorization'] = `Bearer ${authToken}`;
+        // Always read token fresh — avoids stale-const bug (token was null at load time)
+        const liveToken = localStorage.getItem('crm_token');
+        opts.headers['Authorization'] = `Bearer ${liveToken}`;
         const res = await fetch(url, opts);
         if (res.status === 401) {
             localStorage.removeItem('crm_user');
@@ -338,12 +340,22 @@
     async function loadTelecallers() {
         try {
             const res = await apiFetch(`${API}/admin/users`);
-            if (!res.ok) return;   // 403 → leave dropdown as-is
+            if (!res.ok) {
+                console.error('loadTelecallers failed:', res.status);
+                showToast('Could not load telecallers ('+res.status+')', 'bg-rose-600', 'fa-exclamation-circle');
+                return;
+            }
             const users = await res.json();
             telecallers = Array.isArray(users) ? users.filter(u => u.role === 'telecaller') : [];
             document.getElementById('stat-callers').innerText = telecallers.length;
+            if (telecallers.length === 0) {
+                showToast('No telecallers found in system.', 'bg-amber-500', 'fa-user-slash');
+            }
             populateCallerSelect();
-        } catch(e) { /* silently ignore */ }
+        } catch(e) {
+            console.error('loadTelecallers exception:', e);
+            showToast('Failed to load telecallers.', 'bg-rose-600', 'fa-exclamation-circle');
+        }
     }
 
     // ── Tab switching ────────────────────────────
