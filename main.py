@@ -620,7 +620,13 @@ def update_missing_phone():
         return _err("Invalid phone number")
 
     if phone == "UNRESOLVABLE":
-        payload = {"phone":"UNRESOLVABLE","research_at":firestore.SERVER_TIMESTAMP}
+        payload = {
+            "phone": "UNRESOLVABLE",
+            "research_at": firestore.SERVER_TIMESTAMP,
+            "status": "research_done",
+            "assigned_to": None,
+            "research_completed_by": uname,
+        }
     else:
         payload = {
             "phone":phone,"is_researched":True,
