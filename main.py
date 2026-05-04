@@ -957,7 +957,7 @@ def get_transfer_stats():
 # ═══════════════════════════════════════════════════════════════
 @app.route("/api/admin/users", methods=["GET"])
 def get_admin_users():
-    r = _require_role("admin","super_admin")
+    r = _require_role("researcher","admin","super_admin")
     if r: return r
     cached = cache_get("users_list")
     if cached: return jsonify(cached)
@@ -1397,4 +1397,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True, reloader_type="stat")
+    app.run(host="0.0.0.0", port=8000, debug=True, reloader_type="stat")
