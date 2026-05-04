@@ -546,12 +546,13 @@
     // ── Mark unresolvable ─────────────────────────
     async function markUnresolvable() {
         if (!currentLead) return;
-        if (!confirm(`Mark "${currentLead.name}" as not findable?\nIt will be skipped in future.`)) return;
+        if (!confirm(`Mark "${currentLead.name}" as not findable?\nIt will be completely removed from your queue.`)) return;
         try {
-            await apiFetch(`${API}/updater/update-lead`, {
+            const res = await apiFetch(`${API}/updater/update-lead`, {
                 method:'POST', headers:{'Content-Type':'application/json'},
                 body: JSON.stringify({id:currentLead.id, phone:'UNRESOLVABLE', username:user})
             });
+            if (!res.ok) { const d = await res.json(); throw new Error(d.error||"Server error"); }
             pendingLeads = pendingLeads.filter(l => l.id !== currentLead.id);
             currentLead  = null;
             document.getElementById('research-card').classList.add('hidden');
@@ -563,7 +564,7 @@
             } else {
                 renderPendingTable();
             }
-            showToast("Marked as not findable.", "bg-slate-700", "fa-ghost");
+            showToast("Removed — marked as not findable.", "bg-slate-700", "fa-ghost");
         } catch(e) {
             showToast("Failed to mark. Try again.", "bg-rose-600", "fa-exclamation-circle");
         }
@@ -574,7 +575,10 @@
         try {
             const res  = await apiFetch(`${API}/researcher/completed-leads?researcher=${user}`);
             const data = await res.json();
-            completedLeads = Array.isArray(data) ? data : [];
+            // Exclude UNRESOLVABLE leads — they are fully discarded, not assignable
+            completedLeads = Array.isArray(data)
+                ? data.filter(l => l.phone !== 'UNRESOLVABLE')
+                : [];
             document.getElementById('stat-done').innerText   = completedLeads.length;
             document.getElementById('badge-done').innerText  = completedLeads.length;
             if (!completedLeads.length) {
