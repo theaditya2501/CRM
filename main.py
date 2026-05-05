@@ -483,24 +483,26 @@ def get_next_lead():
         if in_prog:
             return jsonify(_enrich(in_prog[0].id,in_prog[0].to_dict()))
 
-        pre_refs = list(
-            db.collection(RESEARCHER_LEADS_PATH)
-            .where(filter=FieldFilter("assigned_to","==",caller))
-            .where(filter=FieldFilter("status","==","new")).limit(1).get()
-        )
-        if pre_refs:
-            ref = pre_refs[0].reference
-            @firestore.transactional
-            def _claim(transaction,ref,caller):
-                snap = ref.get(transaction=transaction)
-                if not snap.exists: return None
-                data = snap.to_dict()
-                if data.get("assigned_to") != caller or data.get("status") != "new":
-                    return None
-                transaction.update(ref,{"status":"calling"})
-                return _enrich(snap.id,data)
-            result = _claim(db.transaction(),ref,caller)
-            if result: return jsonify(result)
+        # Accept both "new" and "sent_to_caller" as valid pickup statuses
+        for pickup_status in ("new", "sent_to_caller"):
+            pre_refs = list(
+                db.collection(RESEARCHER_LEADS_PATH)
+                .where(filter=FieldFilter("assigned_to","==",caller))
+                .where(filter=FieldFilter("status","==",pickup_status)).limit(1).get()
+            )
+            if pre_refs:
+                ref = pre_refs[0].reference
+                @firestore.transactional
+                def _claim(transaction, ref, caller, ps=pickup_status):
+                    snap = ref.get(transaction=transaction)
+                    if not snap.exists: return None
+                    data = snap.to_dict()
+                    if data.get("assigned_to") != caller or data.get("status") != ps:
+                        return None
+                    transaction.update(ref, {"status": "calling"})
+                    return _enrich(snap.id, data)
+                result = _claim(db.transaction(), ref, caller)
+                if result: return jsonify(result)
 
         return jsonify({"error":"Queue Empty"}),404
     except Exception as e:
@@ -588,7 +590,7 @@ def get_researcher_leads():
     if not researcher: return _err("Missing researcher")
     docs = (db.collection(RESEARCHER_LEADS_PATH)
               .where(filter=FieldFilter("assigned_to","==",researcher))
-              .where(filter=FieldFilter("status","in",["new","calling"]))
+              .where(filter=FieldFilter("status","in",["new","calling","researcher_assigned"]))
               .limit(200).get())
     return jsonify([_enrich(d.id,d.to_dict()) for d in docs])
 
@@ -621,11 +623,11 @@ def update_missing_phone():
 
     if phone == "UNRESOLVABLE":
         payload = {
-            "phone": "UNRESOLVABLE",
-            "status": "research_done",
-            "assigned_to": None,
+            "phone":            "UNRESOLVABLE",
+            "status":           "research_done",   # removes from researcher queue permanently
+            "assigned_to":      None,              # unassigns researcher
             "research_completed_by": uname,
-            "research_at": firestore.SERVER_TIMESTAMP,
+            "research_at":      firestore.SERVER_TIMESTAMP,
         }
     else:
         payload = {
@@ -663,9 +665,12 @@ def researcher_batch_assign():
     for lid in lead_ids:
         ref = db.document(f"{RESEARCHER_LEADS_PATH}/{lid}")
         batch.update(ref,{
-            "assigned_to":target,"status":"new",
-            "batch_assigned_by":researcher,
-            "batch_assigned_at":firestore.SERVER_TIMESTAMP
+            "assigned_to":          target,
+            "status":               "sent_to_caller",   # never re-enters researcher queue
+            "batch_assigned_by":    researcher,
+            "batch_assigned_at":    firestore.SERVER_TIMESTAMP,
+            "research_completed_by": researcher,
+            "research_at":          firestore.SERVER_TIMESTAMP,
         })
     batch.commit()
     db.collection(LOGS_PATH).add({
@@ -1062,7 +1067,11 @@ def bulk_assign():
             if target == "POOL":
                 batch.update(ref,{"assigned_to":None,"status":"new"})
             else:
-                batch.update(ref,{"assigned_to":target,"status":"new"})
+                batch.update(ref,{
+                    "assigned_to": target,
+                    "status":      "researcher_assigned",  # distinct status, never re-enters raw pool
+                    "assigned_at": firestore.SERVER_TIMESTAMP,
+                })
         batch.commit()
     cache_bust("leads:")
     cache_bust("global_stats")
